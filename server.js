@@ -13,7 +13,22 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const zlib = require('zlib');
 const { WebSocketServer } = require('ws');
+
+/* gzip 压缩：对大 JSON（50MB+）从 50MB → ~8MB，浏览器 fetch 会自动解 */
+function sendJson(res, status, obj) {
+  let body = Buffer.from(JSON.stringify(obj), 'utf8');
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  const ae = (res.req && res.req.headers['accept-encoding'] || '').toLowerCase();
+  if (body.length > 1024 && /\bgzip\b/.test(ae)) {
+    body = zlib.gzipSync(body);
+    res.setHeader('Content-Encoding', 'gzip');
+    res.setHeader('Vary', 'Accept-Encoding');
+  }
+  res.writeHead(status);
+  res.end(body);
+}
 
 const PORT = parseInt(process.env.PORT || '3000', 10);
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
@@ -64,16 +79,13 @@ const server = http.createServer((req, res) => {
   const m = url.pathname.match(/^\/api\/([^/]+)$/);
   if (m) {
     if (!authed(req, url)) {
-      res.writeHead(401, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'unauthorized' }));
+      sendJson(res, 401, { error: 'unauthorized' });
       return;
     }
     const room = decodeURIComponent(m[1]);
     if (req.method === 'GET') {
       const doc = readRoom(room);
-      res.setHeader('Content-Type', 'application/json');
-      res.writeHead(200);
-      res.end(JSON.stringify(doc));
+      sendJson(res, 200, doc);
       return;
     }
     if (req.method === 'POST') {
@@ -82,24 +94,20 @@ const server = http.createServer((req, res) => {
       req.on('end', () => {
         let incoming;
         try { incoming = JSON.parse(body); } catch (e) {
-          res.writeHead(400); res.end(JSON.stringify({ error: 'invalid_json' })); return;
+          sendJson(res, 400, { error: 'invalid_json' }); return;
         }
         const cur = readRoom(room);
         const clientVer = parseInt(url.searchParams.get('version') || '0', 10);
         const force = url.searchParams.get('force') === '1';
         // 乐观锁：版本不一致说明别人已改，返回冲突让前端合并重发
         if (clientVer !== cur.__version) {
-          res.setHeader('Content-Type', 'application/json');
-          res.writeHead(409);
-          res.end(JSON.stringify({ error: 'conflict', current: cur }));
+          sendJson(res, 409, { error: 'conflict', current: cur });
           return;
         }
         // 防误清空：本地为空但云端有数据，且未明确 force 确认 -> 拒绝
         const rowsLen = Array.isArray(incoming.rows) ? incoming.rows.length : 0;
         if (rowsLen === 0 && cur.rows.length > 0 && !force) {
-          res.setHeader('Content-Type', 'application/json');
-          res.writeHead(403);
-          res.end(JSON.stringify({ error: 'empty_rejected', message: '本地为空但云端有数据，需确认清空（带 force=1）' }));
+          sendJson(res, 403, { error: 'empty_rejected', message: '本地为空但云端有数据，需确认清空（带 force=1）' });
           return;
         }
         const newDoc = {
@@ -109,12 +117,10 @@ const server = http.createServer((req, res) => {
           updated_at: new Date().toISOString(),
         };
         try { writeRoom(room, newDoc); } catch (e) {
-          res.writeHead(500); res.end(JSON.stringify({ error: 'write_failed' })); return;
+          sendJson(res, 500, { error: 'write_failed' }); return;
         }
         broadcast(room, { type: 'changed', version: newDoc.__version, size: rowsLen, at: newDoc.updated_at });
-        res.setHeader('Content-Type', 'application/json');
-        res.writeHead(200);
-        res.end(JSON.stringify({ ok: true, version: newDoc.__version }));
+        sendJson(res, 200, { ok: true, version: newDoc.__version });
       });
       return;
     }
