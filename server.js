@@ -89,9 +89,14 @@ const server = http.createServer((req, res) => {
       return;
     }
     if (req.method === 'POST') {
-      let body = '';
-      req.on('data', (c) => { body += c; });
+      // 关键：必须按 Buffer 拼接后再一次性 UTF-8 解码。
+      // 若写成 body += chunk（Buffer 隐式 toString），每 16KB 分片边界处
+      // 被拆开的中文字符（UTF-8 3 字节）会各自解码失败，产生 U+FFFD 乱码。
+      const chunks = [];
+      let bodyLen = 0;
+      req.on('data', (c) => { chunks.push(c); bodyLen += c.length; });
       req.on('end', () => {
+        const body = Buffer.concat(chunks, bodyLen).toString('utf8');
         let incoming;
         try { incoming = JSON.parse(body); } catch (e) {
           sendJson(res, 400, { error: 'invalid_json' }); return;
