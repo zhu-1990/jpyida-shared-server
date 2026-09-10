@@ -1,0 +1,12 @@
+{
+  "name": "shared-store-server",
+  "version": "1.0.0",
+  "private": true,
+  "description": "通用实时共享后端（多房间 WebSocket + HTTP 文档），用于多人共享看板/文档类项目",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}

@@ -1,0 +1,12 @@
+# Railway 部署配置（通用共享后端）
+# 部署后请到 Railway 控制台给服务添加 Volume：
+#   - 挂载路径 /data ，容量 1 GB（足够看板类项目长期存储）
+#   - 并在 Variables 中设置 DATA_DIR=/data
+[build]
+builder = "nixpacks"
+
+[deploy]
+startCommand = "node server.js"
+healthcheckPath = "/health"
+healthcheckTimeout = 100
+restartPolicyType = "on_failure"
